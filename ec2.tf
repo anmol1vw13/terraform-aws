@@ -22,34 +22,52 @@ data "aws_iam_instance_profile" "demo-role" {
 
 
 
-resource "aws_lb_listener" "front_end" {
+resource "aws_lb_listener" "alb_front_end" {
   load_balancer_arn = aws_lb.ec2_alb.arn
   port              = "80"
   protocol          = "HTTP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.ec2-target-group.arn
+    target_group_arn = aws_lb_target_group.ec2-alb-target-group.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "error" {
+  listener_arn = aws_lb_listener.alb_front_end.arn
+  priority     = 1
+
+  action {
+    type             = "fixed-response"
+    fixed_response {
+      content_type = "application/json"
+      message_body = "{\"message\": \"Error\"}"
+      status_code = "404"
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/error"]
+    }
   }
 }
 
 
-
-resource "aws_lb_target_group" "ec2-target-group" {
-  name     = "ec2-group"
+resource "aws_lb_target_group" "ec2-alb-target-group" {
+  name     = "ec2-alb-group"
   port     = 80
   protocol = "HTTP"
   vpc_id   = var.vpc_id
-}
 
 
-locals {
-  instance-ids = {
-    for k, v in aws_instance.ec2 : v.id => v
+  stickiness {
+    enabled = true
+    type = "lb_cookie"
   }
 }
 
-resource "aws_lb_target_group_attachment" "ec2-group-attach" {
+resource "aws_lb_target_group_attachment" "ec2-alb-group-attach" {
   # covert a list of instance objects to a map with instance ID as the key, and an instance
   # object as the value.
   depends_on = [aws_instance.ec2]
@@ -57,7 +75,40 @@ resource "aws_lb_target_group_attachment" "ec2-group-attach" {
   count = length(aws_instance.ec2)
 
 
-  target_group_arn = aws_lb_target_group.ec2-target-group.arn
+  target_group_arn = aws_lb_target_group.ec2-alb-target-group.arn
+  target_id        = aws_instance.ec2[count.index].id
+  port             = 80
+}
+
+
+resource "aws_lb_listener" "nlb_front_end" {
+  load_balancer_arn = aws_lb.ec2_nlb.arn
+  port              = "80"
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ec2-nlb-target-group.arn
+  }
+}
+
+
+resource "aws_lb_target_group" "ec2-nlb-target-group" {
+    name     = "ec2-nlb-group"
+    port     = 80
+    protocol = "TCP"
+    vpc_id   = var.vpc_id
+}
+
+resource "aws_lb_target_group_attachment" "ec2-nlb-group-attach" {
+  # covert a list of instance objects to a map with instance ID as the key, and an instance
+  # object as the value.
+  depends_on = [aws_instance.ec2]
+
+  count = length(aws_instance.ec2)
+
+
+  target_group_arn = aws_lb_target_group.ec2-nlb-target-group.arn
   target_id        = aws_instance.ec2[count.index].id
   port             = 80
 }
